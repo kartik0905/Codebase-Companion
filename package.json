@@ -4,15 +4,24 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "start": "node server.js",
+    "dev:server": "nodemon --ignore 'repos/*' server.js",
+    "dev:client": "vite",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "vite build"
   },
   "dependencies": {
+    "@datastax/astra-db-ts": "^2.0.2",
+    "@huggingface/inference": "^4.7.1",
     "@tailwindcss/vite": "^4.1.11",
+    "concurrently": "^9.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "nodemon": "^3.1.10",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "simple-git": "^3.28.0",
     "tailwindcss": "^4.1.11"
   },
   "devDependencies": {

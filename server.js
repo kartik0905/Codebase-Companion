@@ -96,35 +96,32 @@ function chunkContent({ content, filePath, chunkSize = 1500, overlap = 200 }) {
 
 
 
+// server.js
+
 async function processAndEmbedRepo(repoUrl) {
   console.log(`[BACKGROUND] Starting processing for ${repoUrl}`);
   const repoName = repoUrl.split("/").pop().replace(".git", "");
   const localPath = path.join(__dirname, "repos", `${repoName}-${Date.now()}`);
 
   try {
-    console.log(`[BACKGROUND] Cloning ${repoUrl}...`);
+    console.log(`[BACKGROUND] Cloning ${repoUrl} to ${localPath}...`);
     await simpleGit().clone(repoUrl, localPath);
 
     console.log("[BACKGROUND] Reading file contents...");
     const files = await readAllFiles(localPath);
-    if (files.length === 0) {
-      console.log("[BACKGROUND] No readable files found in the repository.");
-      return;
-    }
     console.log(`[BACKGROUND] Found ${files.length} readable files.`);
 
-    console.log("[BACKGROUND] Chunking all file content with new strategy...");
+    console.log("[BACKGROUND] Chunking all file content...");
     const allChunks = files.flatMap((file) =>
       chunkContent({ content: file.content, filePath: file.path })
     );
 
     if (allChunks.length === 0) {
-      console.log("[BACKGROUND] Failed to create any chunks from the files. Aborting.");
-      return;
+      console.log("[BACKGROUND] No indexable files found. Aborting.");
+      return; // The 'finally' block will still execute
     }
     console.log(`[BACKGROUND] Created ${allChunks.length} chunks. Preparing to embed...`);
 
-  
     const batchSize = 20;
     for (let i = 0; i < allChunks.length; i += batchSize) {
         const batch = allChunks.slice(i, i + batchSize);
@@ -143,15 +140,22 @@ async function processAndEmbedRepo(repoUrl) {
         });
 
         await Promise.all(insertionPromises);
-        console.log(`[BACKGROUND] Batch ${i / batchSize + 1} successfully inserted.`);
     }
 
-    console.log(`✅ [BACKGROUND] Successfully finished processing and embedding all ${allChunks.length} chunks for ${repoUrl}`);
+    console.log(`✅ [BACKGROUND] Successfully finished processing and embedding all ${allChunks.length} chunks.`);
   } catch (error) {
-    console.error(`❌ [BACKGROUND] A critical error occurred during processing for ${repoUrl}:`, error);
+    console.error(`❌ [BACKGROUND] A critical error occurred during processing:`, error);
   } finally {
-    console.log(`[BACKGROUND] Cleaning up local repository at ${localPath}...`);
-    await fs.rm(localPath, { recursive: true, force: true });
+
+    console.log(`[CLEANUP] Attempting to delete temporary folder: ${localPath}`);
+    try {
+  
+      await fs.access(localPath);
+      await fs.rm(localPath, { recursive: true, force: true });
+      console.log(`[CLEANUP] Successfully deleted temporary folder.`);
+    } catch (cleanupError) {
+      console.error(`[CLEANUP] Error during cleanup:`, cleanupError.message);
+    }
   }
 }
 

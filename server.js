@@ -7,26 +7,40 @@ import fs from "fs/promises";
 import dotenv from "dotenv";
 import { DataAPIClient } from "@datastax/astra-db-ts";
 import { HfInference } from "@huggingface/inference";
+import Groq from "groq-sdk";
+
 
 dotenv.config();
 
-// Hugging Face inference
 const hf = new HfInference(process.env.HF_TOKEN);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Astra DB client — no namespace anymore
 const dbClient = new DataAPIClient(process.env.ASTRA_DB_APPLICATION_TOKEN);
 const db = dbClient.db(process.env.ASTRA_DB_API_ENDPOINT);
 const collection = db.collection(process.env.ASTRA_DB_COLLECTION);
 
 const app = express();
 const PORT = 3001;
-app.use(cors());
+
+const requestLogger = (req, res, next) => {
+  console.log(`\n--- INCOMING REQUEST ---`);
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log("Origin:", req.headers.origin);
+  next(); 
+};
+
+app.use(requestLogger); 
+
+app.use(
+  cors({
+    origin: "http://localhost:5173", 
+  })
+);
 app.use(express.json());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- HELPER FUNCTIONS ---
 
 async function readAllFiles(dirPath) {
   let fileObjects = [];
@@ -47,45 +61,40 @@ async function readAllFiles(dirPath) {
     ".py",
     ".md",
   ]);
-
   const entries = await fs.readdir(dirPath, { withFileTypes: true });
-
   for (const entry of entries) {
-    if (ignoreDirs.has(entry.name) || ignoreFiles.has(entry.name)) {
-      continue;
-    }
+    if (ignoreDirs.has(entry.name) || ignoreFiles.has(entry.name)) continue;
     const fullPath = path.join(dirPath, entry.name);
-
     if (entry.isDirectory()) {
       const nestedFiles = await readAllFiles(fullPath);
       fileObjects = fileObjects.concat(nestedFiles);
-    } else if (entry.isFile()) {
-      const extension = path.extname(entry.name);
-      if (allowedExtensions.has(extension)) {
-        try {
-          const content = await fs.readFile(fullPath, "utf-8");
-          fileObjects.push({ path: fullPath, content });
-        } catch (error) {
-          console.log(`Skipping unreadable file: ${fullPath}`);
-        }
+    } else if (
+      entry.isFile() &&
+      allowedExtensions.has(path.extname(entry.name))
+    ) {
+      try {
+        const content = await fs.readFile(fullPath, "utf-8");
+        fileObjects.push({ path: fullPath, content });
+      } catch (error) {
+        console.log(`Skipping unreadable file: ${fullPath}`);
       }
     }
   }
   return fileObjects;
 }
 
-function chunkContent({ content, filePath, chunkSize = 40, overlap = 5 }) {
+function chunkContent({ content, filePath, chunkSize = 1500, overlap = 200 }) {
   const chunks = [];
-  const lines = content.split("\n");
-  for (let i = 0; i < lines.length; i += chunkSize - overlap) {
-    const chunkLines = lines.slice(i, i + chunkSize);
-    const chunkText = chunkLines.join("\n");
-    chunks.push({ path: filePath, content: chunkText });
+  if (!content) return chunks;
+
+  for (let i = 0; i < content.length; i += chunkSize - overlap) {
+    const chunk = content.substring(i, i + chunkSize);
+    chunks.push({ path: filePath, content: chunk });
   }
   return chunks;
 }
 
-// --- BACKGROUND PROCESSING FUNCTION ---
+
 
 async function processAndEmbedRepo(repoUrl) {
   console.log(`[BACKGROUND] Starting processing for ${repoUrl}`);
@@ -98,91 +107,160 @@ async function processAndEmbedRepo(repoUrl) {
 
     console.log("[BACKGROUND] Reading file contents...");
     const files = await readAllFiles(localPath);
-
-    console.log("[BACKGROUND] Chunking all file content...");
-    const allChunks = [];
-    for (const file of files) {
-      const chunks = chunkContent({
-        content: file.content,
-        filePath: file.path,
-      });
-      allChunks.push(...chunks);
-    }
-
-    if (allChunks.length === 0) {
-      console.log("[BACKGROUND] No indexable files found. Aborting.");
+    if (files.length === 0) {
+      console.log("[BACKGROUND] No readable files found in the repository.");
       return;
     }
+    console.log(`[BACKGROUND] Found ${files.length} readable files.`);
 
-    console.log(
-      `[BACKGROUND] Embedding ${allChunks.length} chunks and storing in Astra DB...`
+    console.log("[BACKGROUND] Chunking all file content with new strategy...");
+    const allChunks = files.flatMap((file) =>
+      chunkContent({ content: file.content, filePath: file.path })
     );
-    const insertionPromises = allChunks.map(async (chunk) => {
-      const embedding = await hf.featureExtraction({
-        model: "BAAI/bge-small-en-v1.5",
-        inputs: chunk.content,
-      });
 
-      return collection.insertOne({
-        text: chunk.content,
-        source: chunk.path,
-        $vector: embedding,
-      });
-    });
-    await Promise.all(insertionPromises);
+    if (allChunks.length === 0) {
+      console.log("[BACKGROUND] Failed to create any chunks from the files. Aborting.");
+      return;
+    }
+    console.log(`[BACKGROUND] Created ${allChunks.length} chunks. Preparing to embed...`);
 
-    console.log(`✅ [BACKGROUND] Successfully finished processing ${repoUrl}`);
+  
+    const batchSize = 20;
+    for (let i = 0; i < allChunks.length; i += batchSize) {
+        const batch = allChunks.slice(i, i + batchSize);
+        console.log(`[BACKGROUND] Processing batch ${i / batchSize + 1} of ${Math.ceil(allChunks.length / batchSize)}...`);
+
+        const insertionPromises = batch.map(async (chunk) => {
+            const embedding = await hf.featureExtraction({
+                model: "BAAI/bge-small-en-v1.5",
+                inputs: chunk.content,
+            });
+            return collection.insertOne({
+                text: chunk.content,
+                source: chunk.path,
+                $vector: embedding,
+            });
+        });
+
+        await Promise.all(insertionPromises);
+        console.log(`[BACKGROUND] Batch ${i / batchSize + 1} successfully inserted.`);
+    }
+
+    console.log(`✅ [BACKGROUND] Successfully finished processing and embedding all ${allChunks.length} chunks for ${repoUrl}`);
   } catch (error) {
-    console.error(`❌ [BACKGROUND] Error processing ${repoUrl}:`, error);
+    console.error(`❌ [BACKGROUND] A critical error occurred during processing for ${repoUrl}:`, error);
   } finally {
     console.log(`[BACKGROUND] Cleaning up local repository at ${localPath}...`);
     await fs.rm(localPath, { recursive: true, force: true });
   }
 }
 
-// --- API ENDPOINT ---
 
 app.post("/index-repo", (req, res) => {
   const { repoUrl } = req.body;
-
-  if (!repoUrl) {
-    return res.status(400).json({ error: "repoUrl is required" });
-  }
-
-  // Immediately send a response to the browser
+  if (!repoUrl) return res.status(400).json({ error: "repoUrl is required" });
   res.status(202).json({
     success: true,
-    message: `Accepted. Indexing process for ${repoUrl} has started in the background. Check server logs for progress.`,
+    message: `Accepted. Indexing process for ${repoUrl} has started.`,
   });
-
-  // Start the long process but DO NOT await it.
-  // The request handler finishes immediately.
   processAndEmbedRepo(repoUrl);
 });
 
-// --- SERVER STARTUP ---
+app.post("/api/ask", async (req, res) => {
+  const { question } = req.body;
+  if (!question) {
+    return res.status(400).json({ error: "Question is required." });
+  }
+
+  try {
+    const questionEmbedding = await hf.featureExtraction({
+      model: "BAAI/bge-small-en-v1.5",
+      inputs: question,
+    });
+    
+    const vector = questionEmbedding[0];
+    
+    const searchResults = await collection.find(
+      {},
+      {
+        sort: { $vector: vector },
+        limit: 5,
+      }
+    );
+    
+  
+  
+    const documents = searchResults?.documents || [];
+    console.log("Number of documents found:", documents.length);
+    if (documents.length > 0) {
+      console.log("First document found:", documents[0]);
+    }
+    
+    const context = documents.map((doc) => doc.text).join("\n\n---\n\n");
+    
+   const chatCompletion = await groq.chat.completions.create({
+     messages: [
+       {
+         role: "system",
+         content: [
+           "You are an expert AI programmer and codebase assistant named 'Codebase Companion'.",
+           "Your goal is to answer the user's question based *only* on the provided context, which contains relevant code snippets and file excerpts from a GitHub repository.",
+           "Follow these rules strictly:",
+           "1. Analyze the provided context thoroughly before answering.",
+           "2. If the context contains the answer, explain it clearly and concisely. Provide code examples from the context if they are relevant to the user's question.",
+           "3. If the context does NOT contain enough information to answer the question, you MUST respond with: 'I'm sorry, but I couldn't find enough information in the codebase to answer your question.' Do not make up answers or use your general knowledge.",
+           "4. When referencing code, mention the file path if it's available in the context.",
+         ].join("\n"),
+       },
+       {
+         role: "user",
+         content: `CONTEXT:\n${context}\n\n---\n\nQUESTION:\n${question}`,
+       },
+     ],
+     model: "llama3-8b-8192",
+   });
+
+    const answer = chatCompletion.choices[0]?.message?.content || "";
+    res.json({ success: true, answer: answer });
+    
+  } catch (error) {
+    console.error("--- ERROR IN /api/ask ---", error);
+    res.status(500).json({
+      error: "An error occurred on the server.",
+      details: error.message,
+      stack: error.stack,
+    });
+  }
+});
+
 
 const initializeDatabase = async () => {
   try {
-    await db.createCollection(process.env.ASTRA_DB_COLLECTION);
-    console.log(`Collection '${process.env.ASTRA_DB_COLLECTION}' is ready.`);
-  } catch (e) {
-    if (e.message.includes("already exists")) {
+    const collections = await db.listCollections();
+    const collectionExists = collections.some(
+      (c) => c.name === process.env.ASTRA_DB_COLLECTION
+    );
+
+    if (!collectionExists) {
+      await db.createCollection(process.env.ASTRA_DB_COLLECTION);
+      console.log(`Collection '${process.env.ASTRA_DB_COLLECTION}' created.`);
+    } else {
       console.log(
         `Collection '${process.env.ASTRA_DB_COLLECTION}' already exists.`
       );
-    } else {
-      console.error("Fatal: Error initializing database:", e);
-      process.exit(1);
     }
+  } catch (e) {
+    console.error("Error initializing database:", e);
   }
 };
 
-const startServer = async () => {
-  await initializeDatabase();
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-};
 
-startServer();
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+
+  
+  initializeDatabase();
+});
+
+
+setInterval(() => {}, 1 << 30);

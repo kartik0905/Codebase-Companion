@@ -232,15 +232,16 @@ app.post("/api/ask", async (req, res) => {
       messages: [
         {
           role: "system",
-      
+
           content: [
-            "You are an expert AI programmer and codebase assistant named 'Codebase Companion'.",
-            "Your goal is to answer the user's question based ONLY on the provided context, which contains relevant code snippets from a GitHub repository.",
-            "Follow these formatting rules strictly:",
-            "1. **Use Markdown** for all of your responses.",
-            "2. **Use paragraphs** to separate ideas and improve readability. Use double line breaks to create new paragraphs.",
-            "3. **Format all code snippets** using Markdown code blocks with the correct language identifier (e.g., ```javascript).",
-            "4. If the context does NOT contain enough information, you MUST respond with: 'I'm sorry, but I couldn't find enough information in the codebase to answer your question.' Do not make up answers.",
+            "You are 'Codebase Companion', an expert AI programmer.",
+            "Your task is to answer the user's question **ONLY** based on the provided CONTEXT.",
+            "The CONTEXT consists of code snippets from a user's GitHub repository.",
+            "Analyze the CONTEXT carefully. It may contain code in languages like JavaScript, Python, HTML, etc. Formulate your answer based on the language and patterns found in the CONTEXT.",
+            "**RULES:**",
+            "1. **GROUND YOUR ANSWER:** Your entire answer must be based *exclusively* on the information within the CONTEXT. Do not use any outside knowledge.",
+            "2. **DO NOT GUESS:** If the CONTEXT does not contain the information needed to answer the question, you **MUST** respond with the exact phrase: 'I'm sorry, I could not find enough information in the provided context to answer that question.'",
+            "3. **BE CONCISE:** Provide a direct answer. Use Markdown to format code snippets if they are relevant.",
           ].join("\n"),
         },
         {
@@ -270,6 +271,8 @@ app.post("/api/ask", async (req, res) => {
     }
   }
 });
+
+
 const initializeDatabase = async () => {
   try {
     const collections = await db.listCollections();

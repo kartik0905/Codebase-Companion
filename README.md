@@ -20,10 +20,6 @@
 
 **Codebase Companion** is a full‑stack AI app that lets you **chat with any public GitHub repository**. It clones a repo, chunks & embeds the content, stores vectors in **Astra DB**, and answers questions using a **RAG pipeline** powered by **Hugging Face embeddings** and **Groq (Llama 3 8B)**.
 
-> ℹ️ Tip: Add a real screenshot or GIF of the app in action.
-
-![App Screenshot Placeholder](https://i.imgur.com/example.png)
-
 ---
 
 ## ✨ Features

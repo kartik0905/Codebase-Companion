@@ -18,132 +18,176 @@
 
 ## 📌 Overview
 
-This full-stack AI application allows you to **chat with any public GitHub repository**.  
-It fetches, indexes, and stores repository content in a vector database, enabling **semantic search** and **context-aware answers** using a **RAG pipeline**.
+**Codebase Companion** is a full‑stack AI app that lets you **chat with any public GitHub repository**. It clones a repo, chunks & embeds the content, stores vectors in **Astra DB**, and answers questions using a **RAG pipeline** powered by **Hugging Face embeddings** and **Groq (Llama 3 8B)**.
+
+> ℹ️ Tip: Add a real screenshot or GIF of the app in action.
+
+![App Screenshot Placeholder](https://i.imgur.com/example.png)
 
 ---
 
 ## ✨ Features
 
-- 📥 **Repo Indexing** — Fetch & parse any public GitHub repo
-- 🧠 **RAG Pipeline** — Accurate, context-driven answers
-- 📊 **Vector Search** — Store & retrieve embeddings with Astra DB
-- 🔍 **Code Location Search** — Find exact file & line references
-- ⚡ **Fast Inference** — Powered by Groq LLaMA
-- 🌐 **Modern UI** — Built with React & Tailwind CSS
-- 🛠 **API Integration** — Node.js backend for processing
+- 📚 **Multi‑Repository Support** – Index multiple repos; switch chat sessions instantly.
+- 🧠 **Intelligent Q&A** – Ask about logic, structure, or purpose in natural language.
+- 🔁 **Streaming Responses** – Word‑by‑word streaming for a ChatGPT‑like feel.
+- 📎 **Source Citing** – Each answer lists the code files used as context.
+- 🧩 **Modern RAG Pipeline** – Accurate, grounded answers using retrieve‑then‑read.
+- 🔍 **Code Location Search** – Surface exact files/paths relevant to your query.
+- ⚡ **Fast Inference** – Groq Llama 3 8B for low‑latency responses.
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Layer | Technologies | Purpose |
-|------|--------------|---------|
-| **Frontend** | React, Tailwind CSS | Responsive & modern UI |
-| **Backend** | Node.js, Express.js | API routing & processing |
-| **AI & Data** | Hugging Face, Astra DB | Embeddings & vector search |
-| **LLM** | Groq LLaMA | Contextual answer generation |
+- **Frontend:** React, Vite, Tailwind CSS  
+- **Backend:** Node.js, Express.js  
+- **AI & Data Processing:**  
+  - **Embedding Model:** `BAAI/bge-small-en-v1.5` (Hugging Face)  
+  - **Vector Database:** Astra DB (DataStax)  
+  - **LLM:** Groq – Llama 3 8B  
+- **Tools:** `simple-git`, `cors`, `dotenv`, `concurrently`
 
 ---
 
 ## ⚙️ How It Works (RAG Pipeline)
 
-### Phase 1: Repo Fetch & Index
+### Phase 1 — Index
+1. **Input**: User submits a public GitHub repo URL.
+2. **Clone & Parse**: Backend clones the repo and walks the file tree.
+3. **Chunking**: Code/docs are split into semantic chunks.
+4. **Embedding**: Chunks embedded via `BAAI/bge-small-en-v1.5`.
+5. **Storage**: Vectors + metadata saved to **Astra DB** (collections created dynamically).
 
-1. **User Input**: Enter GitHub repo URL.
-2. **Fetch & Parse**: Backend downloads repo contents.
-3. **Embedding**: Hugging Face generates embeddings.
-4. **Storage**: Astra DB stores vector data.
-
-### Phase 2: Query
-
-1. **Semantic Search**: Astra DB retrieves top-matching chunks.
-2. **Context Assembly**: Relevant code/docs merged.
-3. **LLM Response**: Groq generates the final answer.
+### Phase 2 — Query
+1. **Semantic Retrieval**: Top‑k chunks fetched from Astra DB.
+2. **Context Assembly**: Relevant snippets + paths composed.
+3. **Answer Generation**: **Groq Llama 3 8B** produces the final, cited answer.
 
 ---
 
 ## 🧪 Local Development
 
-### 🔧 Requirements
+### Prerequisites
+- Node.js v18+
+- npm
+- Accounts/keys for **Hugging Face**, **Groq**, and **Astra DB**
 
-- Node.js (v18+)
-- Hugging Face API Key
-- Astra DB credentials
-- Groq API Key
-
----
-
-## 🏁 Getting Started
-
-### 1. Clone & Setup
-
+### Clone
 ```bash
-git clone https://github.com/kartik0905/ai-github-repo-chatbot.git
-cd ai-github-repo-chatbot
+git clone https://github.com/kartik0905/codebase-companion.git
+cd codebase-companion
+```
 
-# Install frontend dependencies
-cd client
-npm install
-
-# Install backend dependencies
-cd ../server
+### Install (Monorepo)
+If using a single repo with shared root scripts:
+```bash
 npm install
 ```
 
-### 2. Add API Keys
-
-Create `.env` in `server/`:
-
+### Install (Split: client / server)
+```bash
+# Frontend
+cd client && npm install
+# Backend
+cd ../server && npm install
 ```
-HUGGINGFACE_API_KEY=your_key
-ASTRA_DB_ID=your_id
-ASTRA_DB_REGION=your_region
-ASTRA_DB_KEY=your_key
-GROQ_API_KEY=your_key
+
+### Environment Variables
+Create a `.env` **in the backend root** (`server/.env` if split; project root if monorepo) with:
 ```
+# Hugging Face
+HF_TOKEN="hf_..."  # used for BAAI/bge-small-en-v1.5
+
+# Groq
+GROQ_API_KEY="gsk_..."  # Llama 3 8B
+
+# Astra DB (DataStax)
+ASTRA_DB_APPLICATION_TOKEN="AstraCS:..."
+ASTRA_DB_API_ENDPOINT="https://..."  # REST endpoint for your DB keyspace
+ASTRA_DB_COLLECTION="codebase_chunks"  # app may create collections dynamically
+```
+> Keep keys private. Do **not** commit `.env`.
 
 ---
 
-## 🚦 Run the App
+## 🚀 Run the App
 
-**Terminal 1 — Backend**
+### All‑in‑one (concurrently)
+```bash
+npm run dev
+# Backend: http://localhost:3001
+# Frontend: http://localhost:5173
+```
+
+### Split terminals
+**Terminal 1 — Backend**
 ```bash
 cd server
 npm run dev
-# Runs on http://localhost:3001
+# http://localhost:3001
 ```
-
-**Terminal 2 — Frontend**
+**Terminal 2 — Frontend**
 ```bash
 cd client
 npm run dev
-# Runs on http://localhost:5173
+# http://localhost:5173
 ```
 
 ---
 
-## 📁 Folder Structure
-
+## 📁 Folder Structure (example)
 ```
 codebase-companion/
-├── client/
-│   ├── src/
-│   └── package.json
-├── server/
-│   ├── server.js
-│   ├── routes/
-│   └── package.json
-├── README.md
-└── ...
+├─ client/
+│  ├─ src/
+│  └─ package.json
+├─ server/
+│  ├─ routes/
+│  ├─ services/
+│  ├─ rag/
+│  │  ├─ chunking.js
+│  │  ├─ embed.js
+│  │  └─ retrieve.js
+│  ├─ server.js
+│  └─ package.json
+├─ README.md
+└─ ...
 ```
+
+---
+
+## 🔌 API (quick peek)
+
+**POST** `/api/index`  
+Body: `{ repoUrl: string }` → clones, chunks, embeds, and stores vectors.
+
+**POST** `/api/chat`  
+Body: `{ repoId: string, question: string }` → streams an answer + cites files.
+
+> Endpoint names are placeholders; adjust to match your actual routes.
+
+---
+
+## 🧭 Tips
+- Ignore large/binary folders (`.git`, `node_modules`, `dist`, images) during indexing.
+- Tune chunk size/overlap for your languages to maximize retrieval quality.
+- Persist per‑repo metadata so users can switch sessions quickly.
+
+---
+
+## 🗺️ Roadmap / Future Improvements
+- 🔐 **User Authentication** to associate repos with users
+- 🔒 **Private Repos** via GitHub OAuth
+- ☁️ **Cloud Deploy** (Vercel + Render/Fly/railway)
+- 📈 **Analytics** (query quality, hit‑rate, latency)
+- 🧪 **Eval Suite** for retrieval precision/recall
 
 ---
 
 ## 🙌 Acknowledgments
-
 - [Hugging Face](https://huggingface.co/)
-- [Astra DB](https://www.datastax.com/astra)
+- [Astra DB (DataStax)](https://www.datastax.com/astra)
 - [Groq](https://groq.com/)
 - [React](https://react.dev/)
 - [Tailwind CSS](https://tailwindcss.com/)

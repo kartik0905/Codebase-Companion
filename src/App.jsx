@@ -1,16 +1,53 @@
 import { useState, useRef, useEffect } from "react";
-
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+
+const CodeBlock = ({ node, inline, className, children, ...props }) => {
+  const [copied, setCopied] = useState(false);
+  const match = /language-(\w+)/.exec(className || "");
+  const codeText = String(children).replace(/\n$/, "");
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(codeText);
+    setCopied(true);
+    setTimeout(() => {
+      setCopied(false);
+    }, 2000); 
+  };
+
+  return !inline && match ? (
+    <div className="relative">
+      <SyntaxHighlighter
+        style={atomDark}
+        language={match[1]}
+        PreTag="div"
+        {...props}
+      >
+        {codeText}
+      </SyntaxHighlighter>
+      <button
+        onClick={handleCopy}
+        className="absolute top-2 right-2 bg-gray-600 hover:bg-gray-700 text-white text-xs font-sans px-2 py-1 rounded"
+      >
+        {copied ? "Copied!" : "Copy"}
+      </button>
+    </div>
+  ) : (
+    <code className={className} {...props}>
+      {children}
+    </code>
+  );
+};
 
 function App() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [isIndexing, setIsIndexing] = useState(false);
   const [repoIndexed, setRepoIndexed] = useState(false);
+  const [repoId, setRepoId] = useState("");
   const [conversation, setConversation] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState("");
-  const [repoId, setRepoId] = useState("");
   const [isAsking, setIsAsking] = useState(false);
 
   const chatEndRef = useRef(null);
@@ -19,37 +56,39 @@ function App() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversation]);
 
+ 
+  const handleStartNew = () => {
+    setRepoIndexed(false);
+    setRepoId("");
+    setRepositoryUrl("");
+    setConversation([]);
+    setCurrentQuestion("");
+  };
+
   const handleIndexRepository = async (e) => {
     e.preventDefault();
     if (!repositoryUrl) {
       alert("Please enter a repository URL.");
       return;
     }
-
     setIsIndexing(true);
-    setRepoIndexed(false);
     setConversation([]);
 
     try {
       const response = await fetch("http://127.0.0.1:3001/index-repo", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repoUrl: repositoryUrl }),
       });
 
       const data = await response.json();
-
       if (response.ok) {
         setRepoIndexed(true);
         setRepoId(data.repoId);
-
         const welcomeMessage =
           response.status === 202
             ? "I've started indexing the repository. You can ask questions while I process it."
             : "Repository is already indexed. Ready to answer your questions!";
-
         setConversation([{ sender: "ai", text: welcomeMessage }]);
       } else {
         throw new Error(data.error || "Failed to start indexing.");
@@ -101,9 +140,6 @@ function App() {
         if (done) break;
 
         const textChunk = decoder.decode(value);
-
-        console.log("Received chunk:", textChunk);
-
         setConversation((currentConversation) => {
           const lastMessageIndex = currentConversation.length - 1;
           const lastMessage = currentConversation[lastMessageIndex];
@@ -137,16 +173,27 @@ function App() {
     }
   };
 
-
   return (
     <div className="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
       <div className="w-full max-w-2xl flex flex-col h-[80vh]">
-        <h1 className="text-4xl font-bold mb-4 text-center">
-          Codebase Companion 🤖
-        </h1>
+       
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-4xl font-bold text-center">
+            Codebase Companion 🤖
+          </h1>
+          {repoIndexed && (
+            <button
+              onClick={handleStartNew}
+              className="bg-gray-600 hover:bg-gray-700 text-white text-sm font-sans px-3 py-1 rounded"
+            >
+              Start New
+            </button>
+          )}
+        </div>
 
         {!repoIndexed ? (
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+          
             <h2 className="text-xl mb-4">
               Enter a public GitHub repository URL to start
             </h2>
@@ -183,48 +230,20 @@ function App() {
                         msg.sender === "user" ? "bg-blue-600" : "bg-gray-700"
                       }`}
                     >
-                      {/* --- THIS IS THE KEY CHANGE --- */}
+                      {/* --- MODIFIED: Use ReactMarkdown with the custom CodeBlock component --- */}
                       {msg.sender === "user" ? (
                         <div style={{ whiteSpace: "pre-wrap" }}>{msg.text}</div>
                       ) : (
-                        <ReactMarkdown
-                          components={{
-                            code({
-                              node,
-                              inline,
-                              className,
-                              children,
-                              ...props
-                            }) {
-                              const match = /language-(\w+)/.exec(
-                                className || ""
-                              );
-                              return !inline && match ? (
-                                <SyntaxHighlighter
-                                  style={atomDark}
-                                  language={match[1]}
-                                  PreTag="div"
-                                  {...props}
-                                >
-                                  {String(children).replace(/\n$/, "")}
-                                </SyntaxHighlighter>
-                              ) : (
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              );
-                            },
-                          }}
-                        >
+                        <ReactMarkdown components={{ code: CodeBlock }}>
                           {msg.text}
                         </ReactMarkdown>
                       )}
                     </div>
-
                     {msg.sender === "ai" &&
                       msg.sources &&
                       msg.sources.length > 0 && (
                         <div className="mt-2 text-xs text-gray-400 border border-gray-600 rounded p-2 max-w-prose">
+                        
                           <h4 className="font-bold mb-1">Sources:</h4>
                           <ul className="space-y-1">
                             {msg.sources.map((source, idx) => (
@@ -253,8 +272,8 @@ function App() {
               </div>
             </div>
             <div className="bg-gray-800 p-4 rounded-b-lg shadow-lg">
-              
               <form onSubmit={handleAskQuestion} className="flex">
+                {/* ... (form is unchanged) ... */}
                 <input
                   type="text"
                   value={currentQuestion}

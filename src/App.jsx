@@ -6,6 +6,7 @@ function App() {
   const [repoIndexed, setRepoIndexed] = useState(false);
   const [conversation, setConversation] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState("");
+  const [repoId, setRepoId] = useState("");
   const [isAsking, setIsAsking] = useState(false);
 
   const chatEndRef = useRef(null);
@@ -13,6 +14,7 @@ function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversation]);
+
 
   const handleIndexRepository = async (e) => {
     e.preventDefault();
@@ -36,14 +38,18 @@ function App() {
 
       const data = await response.json();
 
-      if (response.status === 202) {
+      
+      if (response.ok) {
         setRepoIndexed(true);
-        setConversation([
-          {
-            sender: "ai",
-            text: `I've started indexing the repository. You can now ask me questions about it while I process it in the background.`,
-          },
-        ]);
+        setRepoId(data.repoId); 
+
+    
+        const welcomeMessage =
+          response.status === 202
+            ? "I've started indexing the repository. You can ask questions while I process it."
+            : "Repository is already indexed. Ready to answer your questions!";
+
+        setConversation([{ sender: "ai", text: welcomeMessage }]);
       } else {
         throw new Error(data.error || "Failed to start indexing.");
       }
@@ -60,12 +66,15 @@ function App() {
     if (!currentQuestion || isAsking) return;
 
     const questionToSend = currentQuestion;
-
     const newConversation = [
       ...conversation,
       { sender: "user", text: questionToSend },
     ];
-    setConversation(newConversation);
+
+    setConversation([
+      ...newConversation,
+      { sender: "ai", text: "", sources: [] },
+    ]);
     setCurrentQuestion("");
     setIsAsking(true);
 
@@ -73,25 +82,56 @@ function App() {
       const response = await fetch("http://127.0.0.1:3001/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: questionToSend }),
+        body: JSON.stringify({ question: questionToSend, repoId: repoId }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.details || "The server returned an error.");
+        const errorData = await response.json();
+        throw new Error(errorData.details || "The server returned an error.");
       }
 
-      setConversation([
-        ...newConversation,
-        { sender: "ai", text: data.answer },
-      ]);
+      const sourcesHeader = response.headers.get("X-Source-Documents");
+      const sources = sourcesHeader ? JSON.parse(sourcesHeader) : [];
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const textChunk = decoder.decode(value);
+
+
+        console.log("Received chunk:", textChunk);
+
+        setConversation((currentConversation) => {
+          const lastMessageIndex = currentConversation.length - 1;
+          const lastMessage = currentConversation[lastMessageIndex];
+          const updatedLastMessage = {
+            ...lastMessage,
+            text: lastMessage.text + textChunk,
+            sources: lastMessage.sources.length ? lastMessage.sources : sources,
+          };
+          return [
+            ...currentConversation.slice(0, lastMessageIndex),
+            updatedLastMessage,
+          ];
+        });
+      }
     } catch (error) {
       console.error("Ask error:", error);
-      setConversation([
-        ...newConversation,
-        { sender: "ai", text: `Sorry, I ran into an error: ${error.message}` },
-      ]);
+      setConversation((currentConversation) => {
+        const lastMessageIndex = currentConversation.length - 1;
+        const lastMessage = currentConversation[lastMessageIndex];
+        const updatedLastMessage = {
+          ...lastMessage,
+          text: `Sorry, I ran into an error: ${error.message}`,
+        };
+        return [
+          ...currentConversation.slice(0, lastMessageIndex),
+          updatedLastMessage,
+        ];
+      });
     } finally {
       setIsAsking(false);
     }

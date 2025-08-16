@@ -185,7 +185,6 @@ app.post("/api/ask", async (req, res) => {
   }
 
   try {
-   
     const collection = db.collection(repoId);
 
     const questionEmbedding = await hf.featureExtraction({
@@ -209,7 +208,19 @@ app.post("/api/ask", async (req, res) => {
 
     const stream = await groq.chat.completions.create({
       messages: [
-        { role: "system", content: "You are an expert AI programmer..." },
+        {
+          role: "system",
+      
+          content: [
+            "You are an expert AI programmer and codebase assistant named 'Codebase Companion'.",
+            "Your goal is to answer the user's question based ONLY on the provided context, which contains relevant code snippets from a GitHub repository.",
+            "Follow these formatting rules strictly:",
+            "1. **Use Markdown** for all of your responses.",
+            "2. **Use paragraphs** to separate ideas and improve readability. Use double line breaks to create new paragraphs.",
+            "3. **Format all code snippets** using Markdown code blocks with the correct language identifier (e.g., ```javascript).",
+            "4. If the context does NOT contain enough information, you MUST respond with: 'I'm sorry, but I couldn't find enough information in the codebase to answer your question.' Do not make up answers.",
+          ].join("\n"),
+        },
         {
           role: "user",
           content: `CONTEXT:\n${context}\n\n---\n\nQUESTION:\n${question}`,
@@ -221,7 +232,6 @@ app.post("/api/ask", async (req, res) => {
 
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || "";
-
       res.write(content);
     }
 
@@ -238,7 +248,6 @@ app.post("/api/ask", async (req, res) => {
     }
   }
 });
-
 const initializeDatabase = async () => {
   try {
     const collections = await db.listCollections();

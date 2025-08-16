@@ -1,5 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 
+import ReactMarkdown from "react-markdown";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
 function App() {
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [isIndexing, setIsIndexing] = useState(false);
@@ -14,7 +18,6 @@ function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversation]);
-
 
   const handleIndexRepository = async (e) => {
     e.preventDefault();
@@ -38,12 +41,10 @@ function App() {
 
       const data = await response.json();
 
-      
       if (response.ok) {
         setRepoIndexed(true);
-        setRepoId(data.repoId); 
+        setRepoId(data.repoId);
 
-    
         const welcomeMessage =
           response.status === 202
             ? "I've started indexing the repository. You can ask questions while I process it."
@@ -101,7 +102,6 @@ function App() {
 
         const textChunk = decoder.decode(value);
 
-
         console.log("Received chunk:", textChunk);
 
         setConversation((currentConversation) => {
@@ -136,6 +136,7 @@ function App() {
       setIsAsking(false);
     }
   };
+
 
   return (
     <div className="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
@@ -173,18 +174,72 @@ function App() {
                 {conversation.map((msg, index) => (
                   <div
                     key={index}
-                    className={`flex ${
-                      msg.sender === "user" ? "justify-end" : "justify-start"
+                    className={`flex flex-col ${
+                      msg.sender === "user" ? "items-end" : "items-start"
                     }`}
                   >
                     <div
                       className={`max-w-prose p-3 rounded-lg ${
                         msg.sender === "user" ? "bg-blue-600" : "bg-gray-700"
                       }`}
-                      style={{ whiteSpace: "pre-wrap" }}
                     >
-                      {msg.text}
+                      {/* --- THIS IS THE KEY CHANGE --- */}
+                      {msg.sender === "user" ? (
+                        <div style={{ whiteSpace: "pre-wrap" }}>{msg.text}</div>
+                      ) : (
+                        <ReactMarkdown
+                          components={{
+                            code({
+                              node,
+                              inline,
+                              className,
+                              children,
+                              ...props
+                            }) {
+                              const match = /language-(\w+)/.exec(
+                                className || ""
+                              );
+                              return !inline && match ? (
+                                <SyntaxHighlighter
+                                  style={atomDark}
+                                  language={match[1]}
+                                  PreTag="div"
+                                  {...props}
+                                >
+                                  {String(children).replace(/\n$/, "")}
+                                </SyntaxHighlighter>
+                              ) : (
+                                <code className={className} {...props}>
+                                  {children}
+                                </code>
+                              );
+                            },
+                          }}
+                        >
+                          {msg.text}
+                        </ReactMarkdown>
+                      )}
                     </div>
+
+                    {msg.sender === "ai" &&
+                      msg.sources &&
+                      msg.sources.length > 0 && (
+                        <div className="mt-2 text-xs text-gray-400 border border-gray-600 rounded p-2 max-w-prose">
+                          <h4 className="font-bold mb-1">Sources:</h4>
+                          <ul className="space-y-1">
+                            {msg.sources.map((source, idx) => (
+                              <li key={idx} className="truncate">
+                                -{" "}
+                                {source
+                                  .split("repos/")[1]
+                                  ?.split("/")
+                                  .slice(1)
+                                  .join("/")}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                   </div>
                 ))}
                 {isAsking && (
@@ -198,6 +253,7 @@ function App() {
               </div>
             </div>
             <div className="bg-gray-800 p-4 rounded-b-lg shadow-lg">
+              
               <form onSubmit={handleAskQuestion} className="flex">
                 <input
                   type="text"

@@ -67,7 +67,7 @@ export const Chat = ({ repoId, handleStartNew }) => {
     setIsAsking(true);
     try {
       const response = await fetch(
-        "http://codebase-companion-backend.onrender.com/api/ask",
+        "https://codebase-companion-backend.onrender.com/api/ask",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

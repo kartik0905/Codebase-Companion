@@ -23,7 +23,7 @@ function App() {
 
     setIsIndexing(true);
     setRepoIndexed(false);
-    setConversation([]); 
+    setConversation([]);
 
     try {
       const response = await fetch("http://127.0.0.1:3001/index-repo", {
@@ -55,7 +55,6 @@ function App() {
     }
   };
 
- 
   const handleAskQuestion = async (e) => {
     e.preventDefault();
     if (!currentQuestion || isAsking) return;
@@ -79,7 +78,6 @@ function App() {
 
       const data = await response.json();
 
-     
       if (!response.ok) {
         throw new Error(data.details || "The server returned an error.");
       }

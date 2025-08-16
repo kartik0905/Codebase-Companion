@@ -9,7 +9,6 @@ import { DataAPIClient } from "@datastax/astra-db-ts";
 import { HfInference } from "@huggingface/inference";
 import Groq from "groq-sdk";
 
-
 dotenv.config();
 
 const hf = new HfInference(process.env.HF_TOKEN);
@@ -26,21 +25,20 @@ const requestLogger = (req, res, next) => {
   console.log(`\n--- INCOMING REQUEST ---`);
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
   console.log("Origin:", req.headers.origin);
-  next(); 
+  next();
 };
 
-app.use(requestLogger); 
+app.use(requestLogger);
 
 app.use(
   cors({
-    origin: "http://localhost:5173", 
+    origin: "http://localhost:5173",
   })
 );
 app.use(express.json());
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 
 async function readAllFiles(dirPath) {
   let fileObjects = [];
@@ -94,14 +92,15 @@ function chunkContent({ content, filePath, chunkSize = 1500, overlap = 200 }) {
   return chunks;
 }
 
-
-
-// server.js
-
 async function processAndEmbedRepo(repoUrl) {
   console.log(`[BACKGROUND] Starting processing for ${repoUrl}`);
   const repoName = repoUrl.split("/").pop().replace(".git", "");
-  const localPath = path.join(__dirname, "repos", `${repoName}-${Date.now()}`);
+  const localPath = path.join(
+    __dirname,
+    "..",
+    "temp_repos",
+    `${repoName}-${Date.now()}`
+  );
 
   try {
     console.log(`[BACKGROUND] Cloning ${repoUrl} to ${localPath}...`);
@@ -120,36 +119,47 @@ async function processAndEmbedRepo(repoUrl) {
       console.log("[BACKGROUND] No indexable files found. Aborting.");
       return; // The 'finally' block will still execute
     }
-    console.log(`[BACKGROUND] Created ${allChunks.length} chunks. Preparing to embed...`);
+    console.log(
+      `[BACKGROUND] Created ${allChunks.length} chunks. Preparing to embed...`
+    );
 
     const batchSize = 20;
     for (let i = 0; i < allChunks.length; i += batchSize) {
-        const batch = allChunks.slice(i, i + batchSize);
-        console.log(`[BACKGROUND] Processing batch ${i / batchSize + 1} of ${Math.ceil(allChunks.length / batchSize)}...`);
+      const batch = allChunks.slice(i, i + batchSize);
+      console.log(
+        `[BACKGROUND] Processing batch ${i / batchSize + 1} of ${Math.ceil(
+          allChunks.length / batchSize
+        )}...`
+      );
 
-        const insertionPromises = batch.map(async (chunk) => {
-            const embedding = await hf.featureExtraction({
-                model: "BAAI/bge-small-en-v1.5",
-                inputs: chunk.content,
-            });
-            return collection.insertOne({
-                text: chunk.content,
-                source: chunk.path,
-                $vector: embedding,
-            });
+      const insertionPromises = batch.map(async (chunk) => {
+        const embedding = await hf.featureExtraction({
+          model: "BAAI/bge-small-en-v1.5",
+          inputs: chunk.content,
         });
+        return collection.insertOne({
+          text: chunk.content,
+          source: chunk.path,
+          $vector: embedding,
+        });
+      });
 
-        await Promise.all(insertionPromises);
+      await Promise.all(insertionPromises);
     }
 
-    console.log(`✅ [BACKGROUND] Successfully finished processing and embedding all ${allChunks.length} chunks.`);
+    console.log(
+      `✅ [BACKGROUND] Successfully finished processing and embedding all ${allChunks.length} chunks.`
+    );
   } catch (error) {
-    console.error(`❌ [BACKGROUND] A critical error occurred during processing:`, error);
+    console.error(
+      `❌ [BACKGROUND] A critical error occurred during processing:`,
+      error
+    );
   } finally {
-
-    console.log(`[CLEANUP] Attempting to delete temporary folder: ${localPath}`);
+    console.log(
+      `[CLEANUP] Attempting to delete temporary folder: ${localPath}`
+    );
     try {
-  
       await fs.access(localPath);
       await fs.rm(localPath, { recursive: true, force: true });
       console.log(`[CLEANUP] Successfully deleted temporary folder.`);
@@ -158,7 +168,6 @@ async function processAndEmbedRepo(repoUrl) {
     }
   }
 }
-
 
 app.post("/index-repo", (req, res) => {
   const { repoUrl } = req.body;
@@ -181,9 +190,9 @@ app.post("/api/ask", async (req, res) => {
       model: "BAAI/bge-small-en-v1.5",
       inputs: question,
     });
-    
+
     const vector = questionEmbedding[0];
-    
+
     const searchResults = await collection.find(
       {},
       {
@@ -191,42 +200,39 @@ app.post("/api/ask", async (req, res) => {
         limit: 5,
       }
     );
-    
-  
-  
+
     const documents = searchResults?.documents || [];
     console.log("Number of documents found:", documents.length);
     if (documents.length > 0) {
       console.log("First document found:", documents[0]);
     }
-    
+
     const context = documents.map((doc) => doc.text).join("\n\n---\n\n");
-    
-   const chatCompletion = await groq.chat.completions.create({
-     messages: [
-       {
-         role: "system",
-         content: [
-           "You are an expert AI programmer and codebase assistant named 'Codebase Companion'.",
-           "Your goal is to answer the user's question based *only* on the provided context, which contains relevant code snippets and file excerpts from a GitHub repository.",
-           "Follow these rules strictly:",
-           "1. Analyze the provided context thoroughly before answering.",
-           "2. If the context contains the answer, explain it clearly and concisely. Provide code examples from the context if they are relevant to the user's question.",
-           "3. If the context does NOT contain enough information to answer the question, you MUST respond with: 'I'm sorry, but I couldn't find enough information in the codebase to answer your question.' Do not make up answers or use your general knowledge.",
-           "4. When referencing code, mention the file path if it's available in the context.",
-         ].join("\n"),
-       },
-       {
-         role: "user",
-         content: `CONTEXT:\n${context}\n\n---\n\nQUESTION:\n${question}`,
-       },
-     ],
-     model: "llama3-8b-8192",
-   });
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are an expert AI programmer and codebase assistant named 'Codebase Companion'.",
+            "Your goal is to answer the user's question based *only* on the provided context, which contains relevant code snippets and file excerpts from a GitHub repository.",
+            "Follow these rules strictly:",
+            "1. Analyze the provided context thoroughly before answering.",
+            "2. If the context contains the answer, explain it clearly and concisely. Provide code examples from the context if they are relevant to the user's question.",
+            "3. If the context does NOT contain enough information to answer the question, you MUST respond with: 'I'm sorry, but I couldn't find enough information in the codebase to answer your question.' Do not make up answers or use your general knowledge.",
+            "4. When referencing code, mention the file path if it's available in the context.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: `CONTEXT:\n${context}\n\n---\n\nQUESTION:\n${question}`,
+        },
+      ],
+      model: "llama3-8b-8192",
+    });
 
     const answer = chatCompletion.choices[0]?.message?.content || "";
     res.json({ success: true, answer: answer });
-    
   } catch (error) {
     console.error("--- ERROR IN /api/ask ---", error);
     res.status(500).json({
@@ -236,7 +242,6 @@ app.post("/api/ask", async (req, res) => {
     });
   }
 });
-
 
 const initializeDatabase = async () => {
   try {
@@ -258,13 +263,10 @@ const initializeDatabase = async () => {
   }
 };
 
-
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 
-  
   initializeDatabase();
 });
-
 
 setInterval(() => {}, 1 << 30);

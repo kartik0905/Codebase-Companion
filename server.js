@@ -17,7 +17,6 @@ const dbClient = new DataAPIClient(process.env.ASTRA_DB_APPLICATION_TOKEN);
 const db = dbClient.db(process.env.ASTRA_DB_API_ENDPOINT);
 
 const getRepoId = (repoUrl) => {
-
   return new URL(repoUrl).pathname.substring(1).replace(/[/-]/g, "_");
 };
 
@@ -33,23 +32,24 @@ const requestLogger = (req, res, next) => {
 
 app.use(requestLogger);
 
-
 const allowedOrigins = [
   "http://localhost:5173",
   "https://codebase-companion.vercel.app",
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-   
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
-  }
-}));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) === -1) {
+        const msg =
+          "The CORS policy for this site does not allow access from the specified Origin.";
+        return callback(new Error(msg), false);
+      }
+      return callback(null, true);
+    },
+  })
+);
 
 app.use(express.json());
 
@@ -108,40 +108,51 @@ function chunkContent({ content, filePath, chunkSize = 1500, overlap = 200 }) {
   return chunks;
 }
 
-
 async function processAndEmbedRepo(repoUrl, repoId) {
   console.log(`[BACKGROUND] Starting processing for ${repoId}`);
-  const localPath = path.join(__dirname, "..", "temp_repos", `${repoId}-${Date.now()}`);
+  const localPath = path.join(
+    __dirname,
+    "..",
+    "temp_repos",
+    `${repoId}-${Date.now()}`
+  );
 
   try {
-  
     await db.createCollection(repoId, {
-        vector: {
-            dimension: 384,
-            metric: "cosine",
-        }
+      vector: {
+        dimension: 384,
+        metric: "cosine",
+      },
     });
     console.log(`[BACKGROUND] Created new Astra DB collection: ${repoId}`);
     const collection = db.collection(repoId);
 
- 
     console.log(`[BACKGROUND] Cloning ${repoUrl}...`);
     await simpleGit().clone(repoUrl, localPath);
     const files = await readAllFiles(localPath);
-    const allChunks = files.flatMap((file) => chunkContent({ content: file.content, filePath: file.path }));
+    const allChunks = files.flatMap((file) =>
+      chunkContent({ content: file.content, filePath: file.path })
+    );
     if (allChunks.length === 0) {
       console.log("[BACKGROUND] No indexable files found. Aborting.");
       return;
     }
-  
+
     const batchSize = 20;
     for (let i = 0; i < allChunks.length; i += batchSize) {
-        const batch = allChunks.slice(i, i + batchSize);
-        const insertionPromises = batch.map(async (chunk) => {
-            const embedding = await hf.featureExtraction({ model: "BAAI/bge-small-en-v1.5", inputs: chunk.content });
-            return collection.insertOne({ text: chunk.content, source: chunk.path, $vector: embedding });
+      const batch = allChunks.slice(i, i + batchSize);
+      const insertionPromises = batch.map(async (chunk) => {
+        const embedding = await hf.featureExtraction({
+          model: "BAAI/bge-small-en-v1.5",
+          inputs: chunk.content,
         });
-        await Promise.all(insertionPromises);
+        return collection.insertOne({
+          text: chunk.content,
+          source: chunk.path,
+          $vector: embedding,
+        });
+      });
+      await Promise.all(insertionPromises);
     }
 
     console.log(`✅ [BACKGROUND] Successfully finished processing ${repoId}`);
@@ -153,17 +164,15 @@ async function processAndEmbedRepo(repoUrl, repoId) {
   }
 }
 
-
 app.post("/index-repo", async (req, res) => {
   const { repoUrl } = req.body;
   if (!repoUrl) return res.status(400).json({ error: "repoUrl is required" });
 
   try {
     const repoId = getRepoId(repoUrl);
-    
 
     const collections = await db.listCollections();
-    const collectionExists = collections.some(c => c.name === repoId);
+    const collectionExists = collections.some((c) => c.name === repoId);
 
     if (collectionExists) {
       console.log(`[SERVER] Repo ${repoId} is already indexed.`);
@@ -174,15 +183,13 @@ app.post("/index-repo", async (req, res) => {
       });
     }
 
- 
     res.status(202).json({
       success: true,
       message: `Accepted. Indexing process for ${repoId} has started.`,
       repoId: repoId,
     });
-    
-    processAndEmbedRepo(repoUrl, repoId);
 
+    processAndEmbedRepo(repoUrl, repoId);
   } catch (error) {
     console.error("Error in /index-repo:", error);
     res.status(500).json({ error: "An error occurred." });
@@ -214,13 +221,22 @@ app.post("/api/ask", async (req, res) => {
       inputs: question,
     });
     const vector = questionEmbedding[0];
+
     const searchResults = await collection.find(
       {},
-      { sort: { $vector: vector }, limit: 5 }
+      {
+        sort: { $vector: vector },
+        limit: 10,
+      }
     );
     const documents = searchResults?.documents || [];
-    const context = documents.map((doc) => doc.text).join("\n\n---\n\n");
-    const sources = [...new Set(documents.map((doc) => doc.source))];
+    const context = documents
+      .map((doc) => `File Path: ${doc.source}\n---\n${doc.text}`)
+      .join("\n\n---\n\n");
+    const sources = documents.map((doc) => ({
+      source: doc.source,
+      text: doc.text,
+    }));
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -232,16 +248,15 @@ app.post("/api/ask", async (req, res) => {
       messages: [
         {
           role: "system",
-
           content: [
-            "You are 'Codebase Companion', an expert AI programmer.",
-            "Your task is to answer the user's question **ONLY** based on the provided CONTEXT.",
-            "The CONTEXT consists of code snippets from a user's GitHub repository.",
-            "Analyze the CONTEXT carefully. It may contain code in languages like JavaScript, Python, HTML, etc. Formulate your answer based on the language and patterns found in the CONTEXT.",
-            "**RULES:**",
-            "1. **GROUND YOUR ANSWER:** Your entire answer must be based *exclusively* on the information within the CONTEXT. Do not use any outside knowledge.",
-            "2. **DO NOT GUESS:** If the CONTEXT does not contain the information needed to answer the question, you **MUST** respond with the exact phrase: 'I'm sorry, I could not find enough information in the provided context to answer that question.'",
-            "3. **BE CONCISE:** Provide a direct answer. Use Markdown to format code snippets if they are relevant.",
+            "You are 'Codebase Companion', an expert AI programmer. Your purpose is to be a factual, precise assistant.",
+            "You will be given a QUESTION and a CONTEXT. The CONTEXT consists of file paths and code snippets from a specific GitHub repository.",
+            "Your task is to answer the user's QUESTION based **100% EXCLUSIVELY** on the information within the provided CONTEXT.",
+            "**CRITICAL RULES:**",
+            "1. **DO NOT HALLUCINATE:** Never invent or assume any information not explicitly present in the CONTEXT. Do not describe a generic project structure (like Flask, Express, etc.) unless the code for that framework is explicitly in the CONTEXT.",
+            "2. **STICK TO THE FACTS:** Ground every part of your answer in the provided code snippets and file paths.",
+            "3. **ADMIT WHEN YOU DON'T KNOW:** If the CONTEXT does not contain the information to answer the question, you **MUST** reply with the single sentence: 'I'm sorry, the provided context from the codebase does not contain enough information to answer that question.'",
+            "4. **FORMATTING:** Use Markdown for code blocks. Be concise.",
           ].join("\n"),
         },
         {
@@ -249,6 +264,7 @@ app.post("/api/ask", async (req, res) => {
           content: `CONTEXT:\n${context}\n\n---\n\nQUESTION:\n${question}`,
         },
       ],
+      // --- FIX: Corrected model name ---
       model: "llama3-8b-8192",
       stream: true,
     });
@@ -271,7 +287,6 @@ app.post("/api/ask", async (req, res) => {
     }
   }
 });
-
 
 const initializeDatabase = async () => {
   try {

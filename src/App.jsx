@@ -3,7 +3,6 @@ import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-
 const CodeBlock = ({ node, inline, className, children, ...props }) => {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || "");
@@ -12,9 +11,7 @@ const CodeBlock = ({ node, inline, className, children, ...props }) => {
   const handleCopy = () => {
     navigator.clipboard.writeText(codeText);
     setCopied(true);
-    setTimeout(() => {
-      setCopied(false);
-    }, 2000); 
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return !inline && match ? (
@@ -49,14 +46,29 @@ function App() {
   const [conversation, setConversation] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
+  const [repoList, setRepoList] = useState([]); 
 
   const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    const fetchRepos = async () => {
+      try {
+        const response = await fetch("http://127.0.0.1:3001/api/repositories");
+        const data = await response.json();
+        if (data.success) {
+          setRepoList(data.repositories);
+        }
+      } catch (error) {
+        console.error("Failed to fetch repositories:", error);
+      }
+    };
+    fetchRepos();
+  }, [repoIndexed]); 
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [conversation]);
 
- 
   const handleStartNew = () => {
     setRepoIndexed(false);
     setRepoId("");
@@ -65,12 +77,21 @@ function App() {
     setCurrentQuestion("");
   };
 
+ 
+  const handleSelectRepo = (selectedRepoId) => {
+    setRepoId(selectedRepoId);
+    setRepoIndexed(true);
+    setConversation([
+      {
+        sender: "ai",
+        text: `Switched to repository: ${selectedRepoId}. Ask me anything!`,
+      },
+    ]);
+  };
+
   const handleIndexRepository = async (e) => {
     e.preventDefault();
-    if (!repositoryUrl) {
-      alert("Please enter a repository URL.");
-      return;
-    }
+    if (!repositoryUrl) return alert("Please enter a repository URL.");
     setIsIndexing(true);
     setConversation([]);
 
@@ -80,7 +101,6 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repoUrl: repositoryUrl }),
       });
-
       const data = await response.json();
       if (response.ok) {
         setRepoIndexed(true);
@@ -104,41 +124,34 @@ function App() {
   const handleAskQuestion = async (e) => {
     e.preventDefault();
     if (!currentQuestion || isAsking) return;
-
     const questionToSend = currentQuestion;
     const newConversation = [
       ...conversation,
       { sender: "user", text: questionToSend },
     ];
-
     setConversation([
       ...newConversation,
       { sender: "ai", text: "", sources: [] },
     ]);
     setCurrentQuestion("");
     setIsAsking(true);
-
     try {
       const response = await fetch("http://127.0.0.1:3001/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: questionToSend, repoId: repoId }),
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.details || "The server returned an error.");
       }
-
       const sourcesHeader = response.headers.get("X-Source-Documents");
       const sources = sourcesHeader ? JSON.parse(sourcesHeader) : [];
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         const textChunk = decoder.decode(value);
         setConversation((currentConversation) => {
           const lastMessageIndex = currentConversation.length - 1;
@@ -174,28 +187,49 @@ function App() {
   };
 
   return (
-    <div className="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
-      <div className="w-full max-w-2xl flex flex-col h-[80vh]">
-       
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-4xl font-bold text-center">
-            Codebase Companion 🤖
-          </h1>
-          {repoIndexed && (
+    <div className="bg-gray-900 text-white min-h-screen flex font-sans p-4">
+      <div className="w-1/4 bg-gray-800 rounded-lg p-4 mr-4">
+        <h2 className="text-xl font-bold mb-4">Indexed Repositories</h2>
+        <ul className="space-y-2">
+          {repoList.map((repo) => (
+            <li key={repo}>
+              <button
+                onClick={() => handleSelectRepo(repo)}
+                className={`w-full text-left px-2 py-1 rounded ${
+                  repo === repoId
+                    ? "bg-blue-600"
+                    : "bg-gray-700 hover:bg-gray-600"
+                }`}
+              >
+                {repo}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="w-3/4 flex flex-col h-[90vh]">
+        <div className="text-center mb-4">
+          <div className="flex justify-center items-center relative">
+            <h1 className="text-4xl font-bold">Codebase Companion 🤖</h1>
             <button
               onClick={handleStartNew}
-              className="bg-gray-600 hover:bg-gray-700 text-white text-sm font-sans px-3 py-1 rounded"
+              className="absolute right-0 bg-gray-600 hover:bg-gray-700 text-white text-sm font-sans px-3 py-1 rounded"
             >
-              Start New
+              Index New Repo
             </button>
+          </div>
+          {repoId && (
+            <h2 className="text-sm text-gray-400 mt-2">
+              Now chatting with: <strong>{repoId}</strong>
+            </h2>
           )}
         </div>
 
         {!repoIndexed ? (
-          <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-          
-            <h2 className="text-xl mb-4">
-              Enter a public GitHub repository URL to start
+          <div className="bg-gray-800 p-6 rounded-lg shadow-lg flex-grow flex flex-col justify-center">
+            <h2 className="text-xl mb-4 text-center">
+              Select a repository from the list or index a new one to begin.
             </h2>
             <form onSubmit={handleIndexRepository}>
               <input
@@ -217,6 +251,7 @@ function App() {
         ) : (
           <>
             <div className="flex-grow bg-gray-800 p-4 rounded-t-lg shadow-inner overflow-y-auto">
+              {/* ... (chat display logic remains the same) ... */}
               <div className="space-y-4">
                 {conversation.map((msg, index) => (
                   <div
@@ -230,7 +265,6 @@ function App() {
                         msg.sender === "user" ? "bg-blue-600" : "bg-gray-700"
                       }`}
                     >
-                      {/* --- MODIFIED: Use ReactMarkdown with the custom CodeBlock component --- */}
                       {msg.sender === "user" ? (
                         <div style={{ whiteSpace: "pre-wrap" }}>{msg.text}</div>
                       ) : (
@@ -243,7 +277,6 @@ function App() {
                       msg.sources &&
                       msg.sources.length > 0 && (
                         <div className="mt-2 text-xs text-gray-400 border border-gray-600 rounded p-2 max-w-prose">
-                        
                           <h4 className="font-bold mb-1">Sources:</h4>
                           <ul className="space-y-1">
                             {msg.sources.map((source, idx) => (
@@ -273,7 +306,6 @@ function App() {
             </div>
             <div className="bg-gray-800 p-4 rounded-b-lg shadow-lg">
               <form onSubmit={handleAskQuestion} className="flex">
-                {/* ... (form is unchanged) ... */}
                 <input
                   type="text"
                   value={currentQuestion}

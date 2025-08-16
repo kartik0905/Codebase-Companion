@@ -178,6 +178,17 @@ app.post("/index-repo", async (req, res) => {
   }
 });
 
+app.get("/api/repositories", async (req, res) => {
+  try {
+    const collections = await db.listCollections();
+    const repoNames = collections.map((c) => c.name);
+    res.json({ success: true, repositories: repoNames });
+  } catch (error) {
+    console.error("--- ERROR IN /api/repositories ---", error);
+    res.status(500).json({ error: "Failed to fetch repositories." });
+  }
+});
+
 app.post("/api/ask", async (req, res) => {
   const { question, repoId } = req.body;
   if (!question || !repoId) {

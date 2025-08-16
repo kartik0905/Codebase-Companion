@@ -11,8 +11,6 @@ import Groq from "groq-sdk";
 
 dotenv.config();
 
-console.log("GROQ API Key loaded:", process.env.GROQ_API_KEY);
-
 const hf = new HfInference(process.env.HF_TOKEN);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const dbClient = new DataAPIClient(process.env.ASTRA_DB_APPLICATION_TOKEN);

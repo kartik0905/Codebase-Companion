@@ -226,7 +226,7 @@ app.post("/api/ask", async (req, res) => {
       {},
       {
         sort: { $vector: vector },
-        limit: 10,
+        limit: 20,
       }
     );
     const documents = searchResults?.documents || [];

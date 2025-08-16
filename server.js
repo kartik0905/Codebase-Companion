@@ -36,7 +36,7 @@ app.use(requestLogger);
 
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://codebase-companion.vercel.app/",
+  "https://codebase-companion.vercel.app",
 ];
 
 app.use(cors({

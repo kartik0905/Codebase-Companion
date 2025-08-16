@@ -66,11 +66,14 @@ export const Chat = ({ repoId, handleStartNew }) => {
     setCurrentQuestion("");
     setIsAsking(true);
     try {
-      const response = await fetch("http://127.0.0.1:3001/api/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: questionToSend, repoId: repoId }),
-      });
+      const response = await fetch(
+        "http://codebase-companion-backend.onrender.com/api/ask",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: questionToSend, repoId: repoId }),
+        }
+      );
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.details || "The server returned an error.");

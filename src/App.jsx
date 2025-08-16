@@ -12,7 +12,9 @@ function App() {
   useEffect(() => {
     const fetchRepos = async () => {
       try {
-        const response = await fetch("http://127.0.0.1:3001/api/repositories");
+        const response = await fetch(
+          "https://codebase-companion-backend.onrender.com/api/repositories"
+        );
         const data = await response.json();
         if (data.success) {
           setRepoList(data.repositories);
@@ -40,11 +42,14 @@ function App() {
     if (!repositoryUrl) return alert("Please enter a repository URL.");
     setIsIndexing(true);
     try {
-      const response = await fetch("http://127.0.0.1:3001/index-repo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl: repositoryUrl }),
-      });
+      const response = await fetch(
+        "https://codebase-companion-backend.onrender.com/index-repo",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repoUrl: repositoryUrl }),
+        }
+      );
       const data = await response.json();
       if (response.ok) {
         setRepoId(data.repoId);
